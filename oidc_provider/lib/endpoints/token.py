@@ -4,24 +4,15 @@ import logging
 from base64 import urlsafe_b64encode
 
 from django.contrib.auth import authenticate
+from django.db import DatabaseError
 from django.http import JsonResponse
 
 from oidc_provider import settings
-from oidc_provider.lib.errors import (
-    TokenError,
-    UserAuthError,
-)
+from oidc_provider.lib.errors import TokenError, UserAuthError
 from oidc_provider.lib.utils.oauth2 import extract_client_auth
-from oidc_provider.lib.utils.token import (
-    create_id_token,
-    create_token,
-    encode_id_token,
-)
-from oidc_provider.models import (
-    Client,
-    Code,
-    Token,
-)
+from oidc_provider.lib.utils.token import (create_id_token, create_token,
+                                           encode_id_token)
+from oidc_provider.models import Client, Code, Token
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +61,10 @@ class TokenEndpoint(object):
                 raise TokenError('invalid_client')
 
             try:
-                self.code = Code.objects.get(code=self.params['code'])
+                self.code = Code.objects.select_for_update(nowait=True).get(code=self.params['code'])
+            except DatabaseError:
+                logger.debug('[Token] Code cannot be reused: %s', self.params['code'])
+                raise TokenError('invalid_grant')
             except Code.DoesNotExist:
                 logger.debug('[Token] Code does not exist: %s', self.params['code'])
                 raise TokenError('invalid_grant')
